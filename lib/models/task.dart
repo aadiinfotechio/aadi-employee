@@ -32,12 +32,14 @@ class Task {
   factory Task.fromJson(Map<String, dynamic> json) {
     return Task(
       id: json['_id'] ?? '',
-      name: json['name'] ?? '',
+      name: json['title'] ?? json['name'] ?? 'Untitled Task', // Backend sends 'title'
       description: json['description'],
       status: json['status'] ?? 'pending',
       priority: json['priority'],
       assignedTo: json['assignedTo']?['_id'] ?? json['assignedTo'],
-      assignedToName: json['assignedTo']?['name'],
+      assignedToName: json['assignedTo']?['fullName'] ??
+                      json['assignedTo']?['name'] ??
+                      '${json['assignedTo']?['firstName'] ?? ''} ${json['assignedTo']?['lastName'] ?? ''}'.trim(),
       project: json['project']?['_id'] ?? json['project'],
       projectName: json['project']?['name'],
       dueDate: json['dueDate'] != null ? DateTime.parse(json['dueDate']) : null,
