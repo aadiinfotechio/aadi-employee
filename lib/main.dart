@@ -1,17 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_background_geolocation/flutter_background_geolocation.dart' as bg;
 import 'providers/auth_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
-import 'services/background_location_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Register headless task for background execution
-  bg.BackgroundGeolocation.registerHeadlessTask(backgroundGeolocationHeadlessTask);
-
   runApp(const MyApp());
 }
 

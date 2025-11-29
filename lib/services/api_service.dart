@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/api_config.dart';
 import '../models/employee.dart';
@@ -29,7 +30,7 @@ class ApiService {
         return handler.next(options);
       },
       onError: (error, handler) {
-        print('API Error: ${error.response?.statusCode} - ${error.message}');
+        debugPrint('API Error: ${error.response?.statusCode} - ${error.message}');
         return handler.next(error);
       },
     ));
@@ -167,7 +168,7 @@ class ApiService {
       }
       return null;
     } catch (e) {
-      print('Failed to load last check-in: $e');
+      debugPrint('Failed to load last check-in: $e');
       return null;
     }
   }
@@ -178,7 +179,7 @@ class ApiService {
       final response = await _dio.get('${ApiConfig.employeeStatus}/$employeeId');
       return response.data['data'] ?? {};
     } catch (e) {
-      print('Failed to get employee status: $e');
+      debugPrint('Failed to get employee status: $e');
       return {};
     }
   }
@@ -213,7 +214,7 @@ class ApiService {
       });
       return response.data;
     } catch (e) {
-      print('Auto-checkout failed: $e');
+      debugPrint('Auto-checkout failed: $e');
       return {'success': false, 'message': e.toString()};
     }
   }

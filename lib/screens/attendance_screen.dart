@@ -56,7 +56,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         });
       }
     } catch (e) {
-      print('Error loading attendance data: $e');
+      debugPrint('Error loading attendance data: $e');
       setState(() => _isLoading = false);
     }
   }

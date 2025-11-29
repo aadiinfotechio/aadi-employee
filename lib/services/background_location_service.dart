@@ -1,8 +1,17 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_background_geolocation/flutter_background_geolocation.dart' as bg;
+import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:workmanager/workmanager.dart';
 import 'api_service.dart';
+
+// Task names for WorkManager
+const String locationCheckTask = "locationCheckTask";
+const String periodicLocationTask = "periodicLocationTask";
+
+// Distance threshold for auto-checkout (3km = 3000 meters)
+const double autoCheckoutDistance = 3000.0;
 
 class BackgroundLocationService {
   static final BackgroundLocationService _instance = BackgroundLocationService._internal();
@@ -10,15 +19,6 @@ class BackgroundLocationService {
   BackgroundLocationService._internal();
 
   final ApiService _apiService = ApiService();
-
-  // Distance threshold for auto-checkout (3km = 3000 meters)
-  static const double autoCheckoutDistance = 3000.0;
-
-  // Site coordinates (loaded from employee profile)
-  double? _siteLatitude;
-  double? _siteLongitude;
-  String? _employeeId;
-  bool _isCheckedIn = false;
   bool _isInitialized = false;
 
   // Initialize the background location service
@@ -28,297 +28,229 @@ class BackgroundLocationService {
     required double? siteLongitude,
     required bool isCheckedIn,
   }) async {
-    _employeeId = employeeId;
-    _siteLatitude = siteLatitude;
-    _siteLongitude = siteLongitude;
-    _isCheckedIn = isCheckedIn;
+    // Save data to SharedPreferences for background task access
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('employeeId', employeeId);
+    await prefs.setBool('isCheckedIn', isCheckedIn);
 
-    if (_isInitialized) {
-      // Just update state if already initialized
-      await _updateTrackingState();
-      return;
+    if (siteLatitude != null) {
+      await prefs.setDouble('siteLatitude', siteLatitude);
+    }
+    if (siteLongitude != null) {
+      await prefs.setDouble('siteLongitude', siteLongitude);
     }
 
-    // Configure the plugin
-    await bg.BackgroundGeolocation.ready(bg.Config(
-      // Debug/Logging
-      debug: kDebugMode,
-      logLevel: kDebugMode ? bg.Config.LOG_LEVEL_VERBOSE : bg.Config.LOG_LEVEL_OFF,
-
-      // Geolocation config
-      desiredAccuracy: bg.Config.DESIRED_ACCURACY_HIGH,
-      distanceFilter: 100.0, // Update every 100 meters
-      stopOnTerminate: false, // Continue tracking after app terminated
-      startOnBoot: true, // Auto-start on device boot
-      enableHeadless: true, // Enable headless mode for background execution
-
-      // Activity Recognition
-      stopTimeout: 5, // Minutes to wait before turning off GPS after vehicle stops
-
-      // Application config
-      foregroundService: true,
-      notification: bg.Notification(
-        title: 'AADI Employee App',
-        text: 'Location tracking active',
-        priority: bg.Config.NOTIFICATION_PRIORITY_LOW,
-        sticky: true,
-      ),
-
-      // iOS specific
-      locationAuthorizationRequest: 'Always',
-      backgroundPermissionRationale: bg.PermissionRationale(
-        title: 'Allow location access in background',
-        message: 'This app needs to track your location in the background to automatically check you out when you leave the site.',
-        positiveAction: 'Allow',
-        negativeAction: 'Cancel',
-      ),
-    ));
-
-    // Listen for location updates
-    bg.BackgroundGeolocation.onLocation(_onLocation);
-
-    // Listen for motion changes
-    bg.BackgroundGeolocation.onMotionChange(_onMotionChange);
-
-    // Listen for provider changes (GPS on/off)
-    bg.BackgroundGeolocation.onProviderChange(_onProviderChange);
-
-    _isInitialized = true;
-
-    // Start or stop based on check-in state
-    await _updateTrackingState();
-  }
-
-  // Handle location updates
-  void _onLocation(bg.Location location) async {
-    debugPrint('[BackgroundLocation] Location: ${location.coords.latitude}, ${location.coords.longitude}');
-
-    if (!_isCheckedIn || _siteLatitude == null || _siteLongitude == null) {
-      return;
-    }
-
-    // Calculate distance from site
-    final distance = _calculateDistance(
-      location.coords.latitude,
-      location.coords.longitude,
-      _siteLatitude!,
-      _siteLongitude!,
-    );
-
-    debugPrint('[BackgroundLocation] Distance from site: ${distance.toStringAsFixed(0)}m');
-
-    // Check if employee has moved more than 3km from site
-    if (distance > autoCheckoutDistance) {
-      debugPrint('[BackgroundLocation] Employee is ${(distance/1000).toStringAsFixed(2)}km from site - triggering auto-checkout');
-      await _triggerAutoCheckout(location.coords.latitude, location.coords.longitude);
-    }
-  }
-
-  // Handle motion state changes
-  void _onMotionChange(bg.Location location) {
-    debugPrint('[BackgroundLocation] Motion change: isMoving=${location.isMoving}');
-  }
-
-  // Handle GPS provider changes
-  void _onProviderChange(bg.ProviderChangeEvent event) {
-    debugPrint('[BackgroundLocation] Provider change: enabled=${event.enabled}, status=${event.status}');
-  }
-
-  // Trigger auto-checkout via API
-  Future<void> _triggerAutoCheckout(double latitude, double longitude) async {
-    if (_employeeId == null) return;
-
-    try {
-      final result = await _apiService.autoCheckout(
-        employeeId: _employeeId!,
-        latitude: latitude,
-        longitude: longitude,
+    if (!_isInitialized) {
+      // Initialize WorkManager
+      await Workmanager().initialize(
+        callbackDispatcher,
+        isInDebugMode: kDebugMode,
       );
-
-      if (result['success'] == true) {
-        if (result['skipped'] == true) {
-          // Away for equipment flag is on - don't stop tracking
-          debugPrint('[BackgroundLocation] Auto-checkout skipped - away for equipment');
-        } else {
-          // Successfully checked out - stop tracking
-          debugPrint('[BackgroundLocation] Auto-checkout successful');
-          _isCheckedIn = false;
-          await stopTracking();
-
-          // Save state
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool('isCheckedIn', false);
-        }
-      }
-    } catch (e) {
-      debugPrint('[BackgroundLocation] Auto-checkout error: $e');
+      _isInitialized = true;
     }
-  }
 
-  // Calculate distance between two coordinates using Haversine formula
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const double earthRadius = 6371000; // meters
-
-    final dLat = _toRadians(lat2 - lat1);
-    final dLon = _toRadians(lon2 - lon1);
-
-    final a = _sin(dLat / 2) * _sin(dLat / 2) +
-              _cos(_toRadians(lat1)) * _cos(_toRadians(lat2)) *
-              _sin(dLon / 2) * _sin(dLon / 2);
-
-    final c = 2 * _atan2(_sqrt(a), _sqrt(1 - a));
-
-    return earthRadius * c;
-  }
-
-  double _toRadians(double degrees) => degrees * 3.141592653589793 / 180;
-  double _sin(double x) => _sinApprox(x);
-  double _cos(double x) => _sinApprox(x + 1.5707963267948966);
-  double _sqrt(double x) => x > 0 ? _sqrtApprox(x) : 0;
-  double _atan2(double y, double x) => _atan2Approx(y, x);
-
-  // Math approximations (dart:math not available in isolate)
-  double _sinApprox(double x) {
-    x = x % (2 * 3.141592653589793);
-    if (x < 0) x += 2 * 3.141592653589793;
-    if (x > 3.141592653589793) x -= 2 * 3.141592653589793;
-    double result = x;
-    double term = x;
-    for (int i = 1; i <= 10; i++) {
-      term *= -x * x / ((2 * i) * (2 * i + 1));
-      result += term;
-    }
-    return result;
-  }
-
-  double _sqrtApprox(double x) {
-    if (x <= 0) return 0;
-    double guess = x / 2;
-    for (int i = 0; i < 20; i++) {
-      guess = (guess + x / guess) / 2;
-    }
-    return guess;
-  }
-
-  double _atan2Approx(double y, double x) {
-    if (x > 0) return _atanApprox(y / x);
-    if (x < 0 && y >= 0) return _atanApprox(y / x) + 3.141592653589793;
-    if (x < 0 && y < 0) return _atanApprox(y / x) - 3.141592653589793;
-    if (x == 0 && y > 0) return 1.5707963267948966;
-    if (x == 0 && y < 0) return -1.5707963267948966;
-    return 0;
-  }
-
-  double _atanApprox(double x) {
-    if (x > 1) return 1.5707963267948966 - _atanApprox(1 / x);
-    if (x < -1) return -1.5707963267948966 - _atanApprox(1 / x);
-    double result = x;
-    double term = x;
-    for (int i = 1; i <= 15; i++) {
-      term *= -x * x;
-      result += term / (2 * i + 1);
-    }
-    return result;
-  }
-
-  // Update tracking state based on check-in status
-  Future<void> _updateTrackingState() async {
-    if (_isCheckedIn && _siteLatitude != null && _siteLongitude != null) {
+    // Start or stop tracking based on check-in status
+    if (isCheckedIn && siteLatitude != null && siteLongitude != null) {
       await startTracking();
     } else {
       await stopTracking();
     }
   }
 
-  // Start background location tracking
+  // Start periodic background location tracking
   Future<void> startTracking() async {
-    if (!_isInitialized) {
-      debugPrint('[BackgroundLocation] Not initialized - cannot start tracking');
-      return;
-    }
+    debugPrint('[BackgroundLocation] Starting periodic tracking...');
 
-    debugPrint('[BackgroundLocation] Starting background tracking...');
-    await bg.BackgroundGeolocation.start();
+    // Cancel any existing tasks first
+    await Workmanager().cancelByTag('location_tracking');
+
+    // Register periodic task - runs every 15 minutes (minimum on Android)
+    await Workmanager().registerPeriodicTask(
+      periodicLocationTask,
+      periodicLocationTask,
+      frequency: const Duration(minutes: 15),
+      tag: 'location_tracking',
+      constraints: Constraints(
+        networkType: NetworkType.connected,
+      ),
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.replace,
+    );
+
+    // Also run an immediate check
+    await Workmanager().registerOneOffTask(
+      '${locationCheckTask}_immediate',
+      locationCheckTask,
+      tag: 'location_tracking',
+      constraints: Constraints(
+        networkType: NetworkType.connected,
+      ),
+    );
   }
 
   // Stop background location tracking
   Future<void> stopTracking() async {
-    debugPrint('[BackgroundLocation] Stopping background tracking...');
-    await bg.BackgroundGeolocation.stop();
+    debugPrint('[BackgroundLocation] Stopping tracking...');
+    await Workmanager().cancelByTag('location_tracking');
   }
 
-  // Update check-in state (called when user checks in/out manually)
+  // Update check-in state
   Future<void> updateCheckInState({
     required bool isCheckedIn,
     double? siteLatitude,
     double? siteLongitude,
   }) async {
-    _isCheckedIn = isCheckedIn;
-    if (siteLatitude != null) _siteLatitude = siteLatitude;
-    if (siteLongitude != null) _siteLongitude = siteLongitude;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isCheckedIn', isCheckedIn);
 
-    await _updateTrackingState();
-  }
+    if (siteLatitude != null) {
+      await prefs.setDouble('siteLatitude', siteLatitude);
+    }
+    if (siteLongitude != null) {
+      await prefs.setDouble('siteLongitude', siteLongitude);
+    }
 
-  // Get current location (one-time)
-  Future<bg.Location?> getCurrentLocation() async {
-    try {
-      return await bg.BackgroundGeolocation.getCurrentPosition(
-        timeout: 30,
-        maximumAge: 5000,
-        desiredAccuracy: 10,
-        samples: 3,
-      );
-    } catch (e) {
-      debugPrint('[BackgroundLocation] Error getting current location: $e');
-      return null;
+    if (isCheckedIn && siteLatitude != null && siteLongitude != null) {
+      await startTracking();
+    } else {
+      await stopTracking();
     }
   }
 
-  // Check if tracking is currently active
-  Future<bool> isTracking() async {
-    final state = await bg.BackgroundGeolocation.state;
-    return state.enabled;
-  }
-
-  // Dispose/cleanup
-  Future<void> dispose() async {
-    await stopTracking();
-    bg.BackgroundGeolocation.removeListeners();
-  }
-}
-
-// Headless task for background execution when app is terminated
-@pragma('vm:entry-point')
-void backgroundGeolocationHeadlessTask(bg.HeadlessEvent headlessEvent) async {
-  debugPrint('[BackgroundGeolocation HeadlessTask]: ${headlessEvent.name}');
-
-  switch (headlessEvent.name) {
-    case bg.Event.LOCATION:
-      bg.Location location = headlessEvent.event;
-      debugPrint('[HeadlessTask] Location: ${location.coords.latitude}, ${location.coords.longitude}');
-
-      // Load saved site coordinates and check distance
+  // Perform location check (can be called directly or from background)
+  Future<void> checkLocationAndAutoCheckout() async {
+    try {
       final prefs = await SharedPreferences.getInstance();
+      final isCheckedIn = prefs.getBool('isCheckedIn') ?? false;
+      final employeeId = prefs.getString('employeeId');
       final siteLatitude = prefs.getDouble('siteLatitude');
       final siteLongitude = prefs.getDouble('siteLongitude');
-      final employeeId = prefs.getString('employeeId');
-      final isCheckedIn = prefs.getBool('isCheckedIn') ?? false;
 
-      if (isCheckedIn && siteLatitude != null && siteLongitude != null && employeeId != null) {
-        final service = BackgroundLocationService();
-        final distance = service._calculateDistance(
-          location.coords.latitude,
-          location.coords.longitude,
-          siteLatitude,
-          siteLongitude,
+      if (!isCheckedIn || employeeId == null || siteLatitude == null || siteLongitude == null) {
+        debugPrint('[BackgroundLocation] Not checked in or missing data, skipping check');
+        return;
+      }
+
+      // Get current position
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 30),
+      );
+
+      // Calculate distance
+      final distance = Geolocator.distanceBetween(
+        position.latitude,
+        position.longitude,
+        siteLatitude,
+        siteLongitude,
+      );
+
+      debugPrint('[BackgroundLocation] Distance from site: ${distance.toStringAsFixed(0)}m');
+
+      // Check if outside 3km radius
+      if (distance > autoCheckoutDistance) {
+        debugPrint('[BackgroundLocation] Outside 3km - triggering auto-checkout');
+
+        final result = await _apiService.autoCheckout(
+          employeeId: employeeId,
+          latitude: position.latitude,
+          longitude: position.longitude,
         );
 
-        if (distance > BackgroundLocationService.autoCheckoutDistance) {
-          debugPrint('[HeadlessTask] Distance ${distance.toStringAsFixed(0)}m > 3km - triggering auto-checkout');
-          await service._triggerAutoCheckout(location.coords.latitude, location.coords.longitude);
+        if (result['success'] == true && result['skipped'] != true) {
+          // Auto-checkout successful, update local state
+          await prefs.setBool('isCheckedIn', false);
+          await stopTracking();
+          debugPrint('[BackgroundLocation] Auto-checkout completed');
+        } else if (result['skipped'] == true) {
+          debugPrint('[BackgroundLocation] Auto-checkout skipped - away for equipment');
         }
       }
-      break;
+    } catch (e) {
+      debugPrint('[BackgroundLocation] Error during location check: $e');
+    }
   }
 }
+
+// WorkManager callback dispatcher - must be top-level function
+@pragma('vm:entry-point')
+void callbackDispatcher() {
+  Workmanager().executeTask((task, inputData) async {
+    debugPrint('[WorkManager] Executing task: $task');
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final isCheckedIn = prefs.getBool('isCheckedIn') ?? false;
+      final employeeId = prefs.getString('employeeId');
+      final siteLatitude = prefs.getDouble('siteLatitude');
+      final siteLongitude = prefs.getDouble('siteLongitude');
+
+      if (!isCheckedIn || employeeId == null || siteLatitude == null || siteLongitude == null) {
+        debugPrint('[WorkManager] Not checked in or missing data');
+        return true;
+      }
+
+      // Check location permission
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        debugPrint('[WorkManager] Location permission denied');
+        return true;
+      }
+
+      // Get current position
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 30),
+      );
+
+      // Calculate distance using Haversine formula
+      final distance = _calculateDistance(
+        position.latitude,
+        position.longitude,
+        siteLatitude,
+        siteLongitude,
+      );
+
+      debugPrint('[WorkManager] Distance from site: ${distance.toStringAsFixed(0)}m');
+
+      // Check if outside 3km radius
+      if (distance > autoCheckoutDistance) {
+        debugPrint('[WorkManager] Outside 3km - triggering auto-checkout');
+
+        final apiService = ApiService();
+        final result = await apiService.autoCheckout(
+          employeeId: employeeId,
+          latitude: position.latitude,
+          longitude: position.longitude,
+        );
+
+        if (result['success'] == true && result['skipped'] != true) {
+          await prefs.setBool('isCheckedIn', false);
+          debugPrint('[WorkManager] Auto-checkout completed');
+        }
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('[WorkManager] Error: $e');
+      return true; // Return true to not retry
+    }
+  });
+}
+
+// Haversine formula for distance calculation
+double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+  const double earthRadius = 6371000; // meters
+
+  final dLat = _toRadians(lat2 - lat1);
+  final dLon = _toRadians(lon2 - lon1);
+
+  final a = sin(dLat / 2) * sin(dLat / 2) +
+            cos(_toRadians(lat1)) * cos(_toRadians(lat2)) *
+            sin(dLon / 2) * sin(dLon / 2);
+
+  final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+
+  return earthRadius * c;
+}
+
+double _toRadians(double degrees) => degrees * pi / 180;

@@ -62,7 +62,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      print('Error loading dashboard data: $e');
+      debugPrint('Error loading dashboard data: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -96,20 +96,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
 
+    // If location is null, try to get it first
     if (_currentPosition == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Getting location... Please try again'),
+          content: Text('Getting location...'),
           backgroundColor: Colors.orange,
+          duration: Duration(seconds: 1),
         ),
       );
       await _getCurrentLocation();
-      return;
+
+      // If still null after trying, show error
+      if (_currentPosition == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not get location. Please enable location services.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
     }
 
     setState(() => _isCheckingIn = true);
 
     try {
+      if (!mounted) return;
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final employeeId = authProvider.currentUser?.id;
 
@@ -131,7 +146,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('$logType successful!'),
+            content: Text('Check ${logType.toLowerCase()} successful!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -139,16 +154,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _loadDashboardData(); // Reload data
       }
     } catch (e) {
+      debugPrint('Check-in/out error: $e');
       if (mounted) {
+        String errorMessage = e.toString();
+        // Extract just the error message if it's wrapped
+        if (errorMessage.contains('Exception:')) {
+          errorMessage = errorMessage.replaceAll('Exception:', '').trim();
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to $logType: $e'),
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
           ),
         );
       }
     } finally {
-      setState(() => _isCheckingIn = false);
+      if (mounted) {
+        setState(() => _isCheckingIn = false);
+      }
     }
   }
 

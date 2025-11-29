@@ -87,7 +87,7 @@ class _AttendanceScreenEnhancedState extends State<AttendanceScreenEnhanced> wit
         _isLoadingCalendar = false;
       });
     } catch (e) {
-      print('Error loading calendar: $e');
+      debugPrint('Error loading calendar: $e');
       setState(() => _isLoadingCalendar = false);
     }
   }
@@ -109,7 +109,7 @@ class _AttendanceScreenEnhancedState extends State<AttendanceScreenEnhanced> wit
         _isLoadingLeaves = false;
       });
     } catch (e) {
-      print('Error loading leaves: $e');
+      debugPrint('Error loading leaves: $e');
       setState(() => _isLoadingLeaves = false);
     }
   }
@@ -127,7 +127,7 @@ class _AttendanceScreenEnhancedState extends State<AttendanceScreenEnhanced> wit
         _lastCheckin = lastCheckin;
       });
     } catch (e) {
-      print('Error loading last check-in: $e');
+      debugPrint('Error loading last check-in: $e');
     }
   }
 
@@ -151,7 +151,7 @@ class _AttendanceScreenEnhancedState extends State<AttendanceScreenEnhanced> wit
         _awayForEquipment = status['awayForEquipment'] ?? false;
       });
     } catch (e) {
-      print('Error loading employee status: $e');
+      debugPrint('Error loading employee status: $e');
     }
   }
 
@@ -230,20 +230,35 @@ class _AttendanceScreenEnhancedState extends State<AttendanceScreenEnhanced> wit
       }
     }
 
+    // If location is null, try to get it first
     if (_currentPosition == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Getting location... Please try again'),
+          content: Text('Getting location...'),
           backgroundColor: Colors.orange,
+          duration: Duration(seconds: 1),
         ),
       );
       await _getCurrentLocation();
-      return;
+
+      // If still null after trying, show error
+      if (_currentPosition == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not get location. Please enable location services.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
     }
 
     setState(() => _isCheckingIn = true);
 
     try {
+      if (!mounted) return;
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final employeeId = authProvider.currentUser?.id;
 
@@ -268,7 +283,7 @@ class _AttendanceScreenEnhancedState extends State<AttendanceScreenEnhanced> wit
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('$logType successful!'),
+            content: Text('Check ${logType.toLowerCase()} successful!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -279,16 +294,25 @@ class _AttendanceScreenEnhancedState extends State<AttendanceScreenEnhanced> wit
         _loadEmployeeStatus();
       }
     } catch (e) {
+      debugPrint('Check-in/out error: $e');
       if (mounted) {
+        String errorMessage = e.toString();
+        // Extract just the error message if it's wrapped
+        if (errorMessage.contains('Exception:')) {
+          errorMessage = errorMessage.replaceAll('Exception:', '').trim();
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to $logType: $e'),
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
           ),
         );
       }
     } finally {
-      setState(() => _isCheckingIn = false);
+      if (mounted) {
+        setState(() => _isCheckingIn = false);
+      }
     }
   }
 
@@ -583,7 +607,7 @@ class _AttendanceScreenEnhancedState extends State<AttendanceScreenEnhanced> wit
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.1),
+                          color: Colors.orange.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Column(
@@ -695,7 +719,7 @@ class _LeaveCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: _getStatusColor().withOpacity(0.2),
+                    color: _getStatusColor().withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -735,7 +759,7 @@ class _LeaveCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
+                  color: Colors.red.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(

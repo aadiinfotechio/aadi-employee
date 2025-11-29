@@ -50,7 +50,7 @@ class _TasksScreenState extends State<TasksScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      print('Error loading tasks: $e');
+      debugPrint('Error loading tasks: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -59,12 +59,14 @@ class _TasksScreenState extends State<TasksScreen> {
     try {
       await _apiService.updateTaskStatus(task.id, newStatus);
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Task updated successfully')),
       );
 
       _loadTasks(); // Reload tasks
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to update task: $e'),
@@ -256,7 +258,7 @@ class _TaskCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: _getStatusColor().withOpacity(0.2),
+                      color: _getStatusColor().withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
