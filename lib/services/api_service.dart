@@ -172,6 +172,52 @@ class ApiService {
     }
   }
 
+  // Get employee status (includes awayForEquipment flag)
+  Future<Map<String, dynamic>> getEmployeeStatus(String employeeId) async {
+    try {
+      final response = await _dio.get('${ApiConfig.employeeStatus}/$employeeId');
+      return response.data['data'] ?? {};
+    } catch (e) {
+      print('Failed to get employee status: $e');
+      return {};
+    }
+  }
+
+  // Toggle away-for-equipment flag
+  Future<Map<String, dynamic>> setAwayForEquipment({
+    required String employeeId,
+    required bool awayForEquipment,
+  }) async {
+    try {
+      final response = await _dio.post(ApiConfig.awayForEquipment, data: {
+        'employeeId': employeeId,
+        'awayForEquipment': awayForEquipment,
+      });
+      return response.data;
+    } catch (e) {
+      throw Exception('Failed to update away-for-equipment status: $e');
+    }
+  }
+
+  // Auto-checkout (called when employee is >3km from site)
+  Future<Map<String, dynamic>> autoCheckout({
+    required String employeeId,
+    double? latitude,
+    double? longitude,
+  }) async {
+    try {
+      final response = await _dio.post(ApiConfig.autoCheckout, data: {
+        'employee': employeeId,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+      });
+      return response.data;
+    } catch (e) {
+      print('Auto-checkout failed: $e');
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
   // Dashboard Methods
   Future<Map<String, dynamic>> getDashboardStats() async {
     try {

@@ -18,6 +18,9 @@ class ApiConfig {
   static const String checkinHistory = '/mobile/checkin/history';
   static const String lastCheckin = '/mobile/checkin/last';
   static const String attendanceCalendar = '/mobile/attendance/calendar';
+  static const String autoCheckout = '/mobile/auto-checkout';
+  static const String employeeStatus = '/mobile/employee/status';
+  static const String awayForEquipment = '/mobile/employee/away-for-equipment';
 
   // Leave endpoints
   static const String leaveList = '/mobile/leave/list';
