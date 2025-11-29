@@ -21,6 +21,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Attendance> _recentActivities = [];
   bool _isLoading = true;
   bool _isCheckingIn = false;
+  bool _isTogglingAway = false;
+  bool _awayForEquipment = false;
   Attendance? _lastCheckin;
   Position? _currentPosition;
 
@@ -29,6 +31,74 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     _loadDashboardData();
     _getCurrentLocation();
+    _loadEmployeeStatus();
+  }
+
+  Future<void> _loadEmployeeStatus() async {
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final employeeId = authProvider.currentUser?.id;
+      if (employeeId != null) {
+        final status = await _apiService.getEmployeeStatus(employeeId);
+        if (mounted) {
+          setState(() {
+            _awayForEquipment = status['awayForEquipment'] ?? false;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading employee status: $e');
+    }
+  }
+
+  Future<void> _toggleAwayForEquipment() async {
+    if (_isTogglingAway) return;
+
+    setState(() => _isTogglingAway = true);
+
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final employeeId = authProvider.currentUser?.id;
+
+      if (employeeId == null) {
+        throw Exception('Employee ID not found');
+      }
+
+      final newValue = !_awayForEquipment;
+      await _apiService.setAwayForEquipment(
+        employeeId: employeeId,
+        awayForEquipment: newValue,
+      );
+
+      if (mounted) {
+        setState(() {
+          _awayForEquipment = newValue;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(newValue
+              ? 'Away for Equipment enabled - auto-checkout disabled'
+              : 'Away for Equipment disabled - auto-checkout enabled'),
+            backgroundColor: newValue ? Colors.orange : Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error toggling away for equipment: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update: ${e.toString().replaceAll('Exception:', '').trim()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isTogglingAway = false);
+      }
+    }
   }
 
   Future<void> _getCurrentLocation() async {
@@ -326,6 +396,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ),
                     ),
+
+                    // Away for Equipment Toggle (only visible when checked in)
+                    if (_isCheckedIn) ...[
+                      const SizedBox(height: 16),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.construction,
+                                      size: 20,
+                                      color: _awayForEquipment ? Colors.orange : Colors.grey,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Away for Equipment',
+                                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _awayForEquipment
+                                    ? 'Auto-checkout disabled while fetching equipment'
+                                    : 'Enable if leaving site to fetch equipment',
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: _awayForEquipment,
+                            onChanged: _isTogglingAway ? null : (_) => _toggleAwayForEquipment(),
+                            activeColor: Colors.orange,
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),

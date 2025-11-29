@@ -4,6 +4,7 @@ import '../providers/auth_provider.dart';
 import 'dashboard_screen.dart';
 import 'tasks_screen.dart';
 import 'attendance_screen_enhanced.dart';
+import 'equipment_check_screen.dart';
 import 'login_screen.dart';
 import 'change_password_screen.dart';
 
@@ -20,6 +21,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final List<Widget> _screens = [
     const DashboardScreen(),
     const TasksScreen(),
+    const EquipmentCheckScreen(),
     const AttendanceScreenEnhanced(),
   ];
 
@@ -124,6 +126,7 @@ class _HomeScreenState extends State<HomeScreen> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: _onTabTapped,
+        type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.dashboard),
@@ -132,6 +135,10 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.task),
             label: 'Tasks',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.precision_manufacturing),
+            label: 'Equipment',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.access_time),

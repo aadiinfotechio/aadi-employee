@@ -33,4 +33,10 @@ class ApiConfig {
   // Dashboard endpoints
   static const String dashboardStats = '/mobile/dashboard/stats';
   static const String todayActivities = '/mobile/dashboard/activities';
+
+  // Equipment Check endpoints
+  static const String equipmentCheckSites = '/mobile/equipment-check/sites';
+  static const String equipmentTodayStatus = '/mobile/equipment-check/today-status';
+  static const String equipmentCheckSubmit = '/mobile/equipment-check/submit';
+  static const String equipmentCheckHistory = '/mobile/equipment-check/history';
 }

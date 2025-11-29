@@ -297,4 +297,52 @@ class ApiService {
       throw Exception('Failed to load calendar data: $e');
     }
   }
+
+  // Equipment Check Methods
+  Future<List<dynamic>> getEquipmentCheckSites() async {
+    try {
+      final response = await _dio.get(ApiConfig.equipmentCheckSites);
+      return response.data['result'] ?? [];
+    } catch (e) {
+      throw Exception('Failed to load sites: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>> getEquipmentTodayStatus(String siteId) async {
+    try {
+      final response = await _dio.get('${ApiConfig.equipmentTodayStatus}/$siteId');
+      return response.data['result'] ?? {};
+    } catch (e) {
+      throw Exception('Failed to load equipment status: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>> submitEquipmentCheck({
+    required String employeeId,
+    required String equipmentId,
+    required String siteId,
+    required String status,
+    required int accuracyPercentage,
+    String? notes,
+    List<String>? issues,
+    double? latitude,
+    double? longitude,
+  }) async {
+    try {
+      final response = await _dio.post(ApiConfig.equipmentCheckSubmit, data: {
+        'employeeId': employeeId,
+        'equipmentId': equipmentId,
+        'siteId': siteId,
+        'status': status,
+        'accuracyPercentage': accuracyPercentage,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+        if (issues != null && issues.isNotEmpty) 'issues': issues,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+      });
+      return response.data;
+    } catch (e) {
+      throw Exception('Failed to submit equipment check: $e');
+    }
+  }
 }
